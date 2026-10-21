@@ -14,6 +14,7 @@ const SYSTEM_PROMPT = `তুমি IT Guru Academy-র সেলস অ্য�
 4. শুধু নিচের "তথ্যভান্ডার" থেকে উত্তর দাও। প্রাইস বা তথ্য সেখানে না থাকলে বানিয়ে বলবে না, বলো "আমি কনফার্ম করে জানাচ্ছি"।
 5. যদি কাস্টমার পেমেন্ট, রিফান্ড, অভিযোগ, বা সরাসরি মানুষের সাথে কথা বলতে চায়, অথবা তুমি উত্তর দিতে না পারো, তাহলে বলো যে টিমের একজন শীঘ্রই যোগাযোগ করবেন, আর উত্তরের একদম শেষে আলাদা করে [HANDOFF] লিখো।
 6. তুমি যে AI সেটা কেউ সরাসরি জিজ্ঞেস করলে সততার সাথে বলো।
+7. কাস্টমারের মেসেজ ভয়েস থেকে লেখায় রূপান্তরিত হতে পারে, তাই বানান বা শব্দে ভুল থাকতে পারে। অর্থ পরিষ্কার না হলে আন্দাজে উত্তর না দিয়ে ভদ্রভাবে আবার জিজ্ঞেস করো।
 
 তথ্যভান্ডার:
 ${KNOWLEDGE}`;
@@ -77,12 +78,20 @@ async function handleMessage(msg, env) {
   if (await env.CHAT_KV.get(seenKey)) return;
   await env.CHAT_KV.put(seenKey, "1", { expirationTtl: 3600 });
 
-  if (msg.type !== "text") {
-    await sendWhatsApp(from, "আপনার প্রশ্নটা অনুগ্রহ করে লিখে পাঠান, আমি সাহায্য করব। 🙂", env);
+  let userText;
+  if (msg.type === "text") {
+    userText = msg.text.body;
+  } else if (msg.type === "audio") {
+    // ভয়েস মেসেজ → Groq Whisper দিয়ে লেখায় রূপান্তর
+    userText = await transcribeVoice(msg.audio.id, env);
+    if (!userText) {
+      await sendWhatsApp(from, "দুঃখিত, ভয়েসটা ঠিকমতো বুঝতে পারিনি। অনুগ্রহ করে লিখে পাঠাবেন? 🙂", env);
+      return;
+    }
+  } else {
+    await sendWhatsApp(from, "আপনার প্রশ্নটা অনুগ্রহ করে লিখে বা ভয়েস মেসেজে পাঠান, আমি সাহায্য করব। 🙂", env);
     return;
   }
-
-  const userText = msg.text.body;
   const histKey = `hist:${from}`;
   const history = JSON.parse((await env.CHAT_KV.get(histKey)) || "[]");
 
@@ -128,6 +137,54 @@ async function askGroq(history, userText, env) {
   }
   const data = await res.json();
   return data?.choices?.[0]?.message?.content?.trim() || "দুঃখিত, বুঝতে পারিনি। আবার একটু লিখবেন? 🙂";
+}
+
+// WhatsApp ভয়েস মেসেজ ডাউনলোড করে Groq Whisper দিয়ে টেক্সটে রূপান্তর
+async function transcribeVoice(mediaId, env) {
+  try {
+    const version = env.GRAPH_API_VERSION || "v23.0";
+    const auth = { Authorization: `Bearer ${env.WHATSAPP_TOKEN}` };
+
+    // ১) মিডিয়ার ডাউনলোড URL আনো
+    const metaRes = await fetch(`https://graph.facebook.com/${version}/${mediaId}`, { headers: auth });
+    if (!metaRes.ok) {
+      console.error("Media meta error:", metaRes.status, await metaRes.text());
+      return null;
+    }
+    const meta = await metaRes.json();
+
+    // ২) অডিও ফাইল ডাউনলোড করো
+    const fileRes = await fetch(meta.url, { headers: auth });
+    if (!fileRes.ok) {
+      console.error("Media download error:", fileRes.status);
+      return null;
+    }
+    const audio = await fileRes.arrayBuffer();
+
+    // ৩) Groq Whisper-এ পাঠাও
+    const form = new FormData();
+    form.append("file", new Blob([audio], { type: meta.mime_type || "audio/ogg" }), "voice.ogg");
+    form.append("model", env.WHISPER_MODEL || "whisper-large-v3-turbo");
+    form.append("response_format", "json");
+    form.append("temperature", "0");
+    form.append("prompt", "IT Guru Academy, LinkedIn Automation, WordPress, GitHub, Buffer, Groq, bKash, Nagad, Rocket");
+    if (env.WHISPER_LANGUAGE) form.append("language", env.WHISPER_LANGUAGE); // যেমন "bn"; ফাঁকা রাখলে অটো-ডিটেক্ট
+
+    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` },
+      body: form,
+    });
+    if (!res.ok) {
+      console.error("Whisper error:", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    return data?.text?.trim() || null;
+  } catch (err) {
+    console.error("transcribeVoice error:", err);
+    return null;
+  }
 }
 
 async function sendWhatsApp(to, text, env) {
