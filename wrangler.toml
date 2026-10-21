@@ -1,0 +1,12 @@
+name = "itguru-whatsapp-bot"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+GRAPH_API_VERSION = "v23.0"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
+# Cloudflare Dashboard → Storage & Databases → KV থেকে namespace বানিয়ে ID এখানে বসাও
+[[kv_namespaces]]
+binding = "CHAT_KV"
+id = "YOUR_KV_NAMESPACE_ID"

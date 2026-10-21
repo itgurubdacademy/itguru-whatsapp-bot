@@ -1,0 +1,9 @@
+# শুধু লোকাল টেস্টের জন্য। আসল সিক্রেট কখনো GitHub-এ দেবে না।
+# কপি করে .dev.vars নামে বানাও (সেটা .gitignore-এ আছে)
+VERIFY_TOKEN=
+GROQ_API_KEY=
+WHATSAPP_TOKEN=
+PHONE_NUMBER_ID=
+APP_SECRET=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
