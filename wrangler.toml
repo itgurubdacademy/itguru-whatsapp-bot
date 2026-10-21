@@ -9,4 +9,4 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 # Cloudflare Dashboard → Storage & Databases → KV থেকে namespace বানিয়ে ID এখানে বসাও
 [[kv_namespaces]]
 binding = "CHAT_KV"
-id = "YOUR_KV_NAMESPACE_ID"
+id = "9ef86d7604ac4bf78a285d73197553c8"
